@@ -34,16 +34,6 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'Mobile number already exists.' });
         }
 
-        await db.query(`
-        CREATE TABLE IF NOT EXISTS users (
-            user_id SERIAL PRIMARY KEY,
-            first_name VARCHAR(50),
-            last_name VARCHAR(50),
-            gender CHAR(1),
-            mobile_number VARCHAR(15) UNIQUE,
-            age INT
-          )`);
-
         const result = await db.query(`
           INSERT INTO users (first_name, last_name, gender, mobile_number, age)
           VALUES ($1, $2, $3, $4, $5)

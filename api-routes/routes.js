@@ -22,14 +22,6 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
     const { source, destination } = req.body;
     try {
-        await db.query(`
-        CREATE TABLE IF NOT EXISTS routes (
-            route_id SERIAL PRIMARY KEY,
-            source VARCHAR(50) NOT NULL,
-            destination VARCHAR(50) NOT NULL
-          );
-        `);
-
         const result = await db.query(`
         INSERT INTO routes (source, destination)
         VALUES ($1, $2)
@@ -53,21 +45,30 @@ router.post('/:route_id/buses', async (req, res) => {
             return res.status(404).json({ error: 'Route not found.' });
         }
 
-        await db.query(`
-            CREATE TABLE IF NOT EXISTS bus_routes (
-                bus_route_id SERIAL PRIMARY KEY,
-                route_id INT REFERENCES routes(route_id),
-                bus_id INT REFERENCES buses(bus_id),
-                journey_start_time TIMESTAMP,
-                journey_end_time TIMESTAMP
-            )
-        `);
+        const busCheck = await db.query('SELECT * FROM buses WHERE bus_id = $1', [bus_id]);
+        if (busCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Bus not present in route.' });
+        }
+
+        const conflictingBookings = await db.query(`
+            SELECT * FROM bus_routes 
+            WHERE bus_id = $1 
+            AND ((journey_start_time <= $2 AND journey_end_time >= $2)
+            OR (journey_start_time <= $3 AND journey_end_time >= $3))
+        `, [bus_id, journey_start_time, journey_end_time]);
+
+        if (conflictingBookings.rows.length > 0) {
+            return res.status(400).json({ error: 'Bus is not available for the provided time range.' });
+        }
+
+        const totalSeatsQuery = await db.query('SELECT total_seats FROM buses WHERE bus_id = $1', [bus_id]);
+        const totalSeats = totalSeatsQuery.rows[0].total_seats;
 
         const result = await db.query(`
-            INSERT INTO bus_routes (route_id, bus_id, journey_start_time, journey_end_time)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO bus_routes (route_id, bus_id, journey_start_time, journey_end_time, available_seats)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
-        `, [route_id, bus_id, journey_start_time, journey_end_time]);
+        `, [route_id, bus_id, journey_start_time, journey_end_time, totalSeats]);
 
         res.status(201).json(result.rows);
     }
@@ -82,7 +83,7 @@ router.delete('/:route_id/buses/:bus_id', async (req, res) => {
     const { route_id, bus_id } = req.params;
 
     try {
-        const routeCheck = await db.query('SELECT * FROM routes WHERE route_id = $1', [route_id]);
+        const routeCheck = await db.query('SELECT * FROM bus_routes WHERE route_id = $1', [route_id]);
         if (routeCheck.rows.length === 0) {
             return res.status(404).json({ error: 'Route not found.' });
         }
@@ -108,9 +109,9 @@ router.get('/:route_id/buses', async (req, res) => {
 
     try {
         const result = await db.query(`SELECT 
-        b.bus_name, b.bus_id, b.total_seats, b.booked_seats,
+        b.bus_name, b.bus_id, b.total_seats,
         r.route_id, r.source, r.destination,
-        br.journey_start_time, br.journey_end_time 
+        br.journey_start_time, br.journey_end_time, br.available_seats
         FROM buses b JOIN bus_routes br ON b.bus_id = br.bus_id
         JOIN routes r ON br.route_id = r.route_id
         WHERE r.route_id = $1`, [route_id]);
