@@ -9,7 +9,7 @@ app.use(express.json());
 
 router.get('/', async (req, res) => {
     try {
-        const { rows } = await pool.query('SELECT * FROM users');
+        const { rows } = await db.query('SELECT * FROM users');
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error:', error);
@@ -26,7 +26,7 @@ router.post('/', async (req, res) => {
     }
 
     try {
-        const mobileCheck = await pool.query(
+        const mobileCheck = await db.query(
             'SELECT * FROM users WHERE mobile_number = $1',
             [mobile_number]
         );
